@@ -1,42 +1,77 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits } = require('discord.js');
+const { 
+  Client, 
+  GatewayIntentBits, 
+  REST, 
+  Routes, 
+  SlashCommandBuilder 
+} = require('discord.js');
 const { verifyCodeAndAssignRole } = require('./utils/discord-utils');
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildMembers,
   ],
 });
 
-client.once('ready', () => {
+client.once('ready', async () => {
   console.log(`✅ Bot conectado como ${client.user.tag}`);
+
+  // Registro del comando /verify en el servidor
+  const commands = [
+    new SlashCommandBuilder()
+      .setName('verify')
+      .setDescription('Verifica tu código y recibe un rol.')
+      .addStringOption(option =>
+        option
+          .setName('code')
+          .setDescription('El código de verificación')
+          .setRequired(true)
+      )
+      .toJSON(),
+  ];
+
+  const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+
+  try {
+    // ⚠️ Si quieres registrarlo global, cambia process.env.GUILD_ID por null y usa Routes.applicationCommands
+    await rest.put(
+      Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+      { body: commands }
+    );
+    console.log('✅ Comando /verify registrado correctamente');
+  } catch (error) {
+    console.error('❌ Error registrando comandos:', error);
+  }
 });
 
-// Escucha mensajes en Discord
-client.on('messageCreate', async (message) => {
-  if (message.author.bot) return;
+// Manejo de interacciones (slash commands)
+client.on('interactionCreate', async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
 
-  // Ejemplo: !verify ABC123
-  if (message.content.startsWith('!verify')) {
-    const code = message.content.split(' ')[1];
-
-    if (!code) {
-      return message.reply('Debes indicar un código. Ejemplo: `!verify TU-CODIGO`');
-    }
+  if (interaction.commandName === 'verify') {
+    const code = interaction.options.getString('code');
 
     try {
-      const result = await verifyCodeAndAssignRole(code, message.member);
+      const result = await verifyCodeAndAssignRole(code, interaction.member);
       if (result.success) {
-        message.reply(`✅ Código válido. Rol asignado: ${result.roleName}`);
+        await interaction.reply({ 
+          content: `✅ Código válido. Rol asignado: ${result.roleName}`, 
+          ephemeral: true 
+        });
       } else {
-        message.reply('❌ Código no válido o ya usado.');
+        await interaction.reply({ 
+          content: '❌ Código no válido o ya usado.', 
+          ephemeral: true 
+        });
       }
     } catch (err) {
       console.error('Error verificando código:', err);
-      message.reply('⚠️ Hubo un error al verificar el código.');
+      await interaction.reply({ 
+        content: '⚠️ Hubo un error al verificar el código.', 
+        ephemeral: true 
+      });
     }
   }
 });
